@@ -1,15 +1,1 @@
-{
-  "name": "Bsaha",
-  "short_name": "Bsaha",
-  "description": "Sport, repas et coach — Mohamed & Firdaous",
-  "display": "standalone",
-  "start_url": "./",
-  "scope": "./",
-  "background_color": "#F6F1EA",
-  "theme_color": "#F6F1EA",
-  "lang": "fr",
-  "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ]
-}
+{"name":"Bsaha","short_name":"Bsaha","start_url":"./","scope":"./","display":"standalone","background_color":"#F7F4F9","theme_color":"#F7F4F9","icons":[{"src":"icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},{"src":"icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}]}
