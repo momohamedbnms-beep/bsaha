@@ -132,6 +132,10 @@ svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-lin
 .cell.fait{background:linear-gradient(142deg,var(--grn1),var(--grn2));color:#fff}
 .cell.fait u{color:#fff}
 .cell.auj{box-shadow:inset 0 0 0 2px var(--ink)}
+.cell.edit{box-shadow:inset 0 0 0 2px var(--vio2);opacity:1}
+.cell.edit:not(.prev){background:transparent;box-shadow:inset 0 0 0 2px var(--line)}
+.cell.edit:not(.prev) span{color:var(--vio1);font-size:17px;font-weight:800}
+.cell.edit:active{transform:scale(.92)}
 .ltete{font-size:12px;font-weight:800;color:var(--ink2);margin:14px 0 2px;letter-spacing:-.2px}
 .wsem{background:var(--card);border-radius:28px;padding:16px 10px;box-shadow:var(--sh1)}
 main>.ec>.wsem{margin:0 -6px}

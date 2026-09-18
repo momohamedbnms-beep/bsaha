@@ -41,6 +41,7 @@ const JC = ['D','L','M','M','J','V','S'];
 const MOIS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
 const dateLongue = d => JOURS[d.getDay()]+' '+d.getDate()+' '+MOIS[d.getMonth()];
 const MC = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+const joursTexte = x => (x && x.length) ? x.slice().sort((m,n)=>((m+6)%7)-((n+6)%7)).map(m=>JOURS[m].slice(0,3).toLowerCase()).join(' · ') : 'aucun';
 const dateCourte = d => JOURS[d.getDay()]+' '+d.getDate()+' '+MC[d.getMonth()];
 const nb = n => new Intl.NumberFormat('fr-FR').format(Math.round(n));
 const kg = n => (Math.round(n*10)/10).toString().replace('.', ',');
@@ -62,19 +63,42 @@ const PROF = p => Object.assign({}, PROFILS_DEFAUT[p], D.profils[p] || {});
 let profil = (() => { try { return localStorage.getItem('bsaha.profil') || 'mohamed'; } catch(e){ return 'mohamed'; } })();
 let onglet = 'jour';
 
-// ===== séance du jour =====
+// ===== planning : jours par défaut + surcharges semaine par semaine =====
+const cleOv = (p, lun) => p + '_' + iso(lun);
+function joursDe(p, d){
+  const r = REG(), ov = (r.ov || {})[cleOv(p, lundiDe(d))];
+  return Array.isArray(ov) ? ov : (r.jours[p] || []);
+}
+function estJour(p, d){ return joursDe(p, d).includes(d.getDay()); }
 function nbSeancesAvant(p, d){
-  const r = REG(), deb = dde(r.debut), j = r.jours[p] || [];
+  const deb = dde(REG().debut);
   if (d < deb) return -1;
   let n = 0;
-  for (let x = new Date(deb); x <= d; x = plus(x,1)) if (j.includes(x.getDay())) { if (iso(x) === iso(d)) return n; n++; }
+  for (let x = new Date(deb); x <= d; x = plus(x,1)) if (estJour(p, x)) { if (iso(x) === iso(d)) return n; n++; }
   return -1;
 }
 function seanceDuJour(p, d){
-  const r = REG(); if (!(r.jours[p]||[]).includes(d.getDay())) return null;
+  if (!estJour(p, d)) return null;
   const n = nbSeancesAvant(p, d); if (n < 0) return null;
   const rot = p === 'mohamed' ? ROTATION_M[4] : ROTATION_F[4];
   return rot[n % rot.length];
+}
+const chef = () => profil === 'mohamed';
+async function basculerJour(p, ds){
+  const d = dde(ds), lun = lundiDe(d), r = REG();
+  const cur = joursDe(p, d).slice(), dow = d.getDay(), i = cur.indexOf(dow);
+  if (i >= 0) cur.splice(i, 1); else cur.push(dow);
+  cur.sort((x,y)=>((x+6)%7)-((y+6)%7));
+  r.ov = Object.assign({}, r.ov || {}); r.ov[cleOv(p, lun)] = cur;
+  vib(12);
+  await store.set('couple', 'settings', r);
+}
+async function figerHabitude(){
+  const lun = plus(lundiDe(auj()), semOff*7), r = REG();
+  r.jours = { mohamed: joursDe('mohamed', lun).slice(), firdaous: joursDe('firdaous', lun).slice() };
+  r.ov = {};
+  await store.set('couple', 'settings', r);
+  toast('Ce rythme devient l’habitude');
 }
 const titre = (p,k) => p === 'mohamed' ? (k[0] === 'H' ? 'Haut du corps' : 'Bas du corps') : ((SEANCES[k]||{}).sous || k);
 const defSeance = (p, k) => (p === 'mohamed' ? SEANCES_M : SEANCES)[k];
@@ -177,22 +201,27 @@ function rJour(p, ds){
 }
 
 // --- SEMAINE ---
-let semOff = 0;
+let semOff = 0, edit = false;
 function rSemaine(){
   const lun = plus(lundiDe(auj()), semOff*7), h = [];
   h.push('<div class="wsem"><div class="hrow" style="padding:0 8px"><div class="lab">Semaine du '+lun.getDate()+' '+MOIS[lun.getMonth()]+'</div>'+
     '<div style="display:flex;gap:6px"><button class="x" data-a="sem" data-n="-1" style="width:36px;height:36px" aria-label="Semaine précédente"><svg viewBox="0 0 24 24" style="transform:rotate(180deg)">'+I.chev+'</svg></button>'+
     '<button class="x" data-a="sem" data-n="1" aria-label="Semaine suivante">'+svg(I.chev)+'</button></div></div>');
+  if (chef()) h.push('<button class="'+(edit?'cta gh':'cta2')+'" data-a="edit" style="margin:10px 6px 2px;width:calc(100% - 12px)">'+
+    svg(edit?I.check:I.gear)+(edit?'Terminé — appuie sur un jour':'Modifier les jours')+'</button>');
   h.push('<div class="gr">'+[1,2,3,4,5,6,0].map((_,i)=>'<div class="d">'+JC[plus(lun,i).getDay()]+'</div>').join('')+'</div>');
   for (const p of ['mohamed','firdaous']){
-    h.push('<div class="ltete">'+esc(PROF(p).prenom)+'</div><div class="gr">');
+    const nj = joursDe(p, lun).length;
+    h.push('<div class="ltete" style="display:flex;justify-content:space-between;padding:0 6px"><span>'+esc(PROF(p).prenom)+'</span><span class="mini">'+nj+' séance'+(nj>1?'s':'')+'</span></div><div class="gr">');
     for (let i = 0; i < 7; i++){
       const d = plus(lun,i), ds = iso(d), k = seanceDuJour(p,d), l = D.logs[lid(p,ds)];
       const cls = ['cell']; if (k) cls.push('prev'); if (l && l.fait) cls.push('fait'); if (ds === iso(auj())) cls.push('auj');
-      h.push('<button class="'+cls.join(' ')+'" data-a="jjour" data-p="'+p+'" data-d="'+ds+'"><u>'+d.getDate()+'</u>'+(k?'<span>'+esc(k)+'</span>':'<span>·</span>')+'</button>');
+      const ed = edit && chef(); if (ed) cls.push('edit');
+      h.push('<button class="'+cls.join(' ')+'" data-a="'+(ed?'togj':'jjour')+'" data-p="'+p+'" data-d="'+ds+'"><u>'+d.getDate()+'</u>'+(k?'<span>'+esc(k)+'</span>':'<span>'+(ed?'+':'·')+'</span>')+'</button>');
     }
     h.push('</div>');
   }
+  if (edit && chef()) h.push('<button class="cta2" data-a="habitude" style="margin:14px 6px 2px;width:calc(100% - 12px)">Appliquer à toutes les semaines</button>');
   h.push('</div>');
   // scores
   const sc = ['mohamed','firdaous'].map(p => { let f = 0, t = 0; for (let i=0;i<7;i++){ const d = plus(lun,i); if (seanceDuJour(p,d)){ t++; const l = D.logs[lid(p,iso(d))]; if (l && l.fait) f++; } } return { p, f, t }; });
@@ -321,6 +350,7 @@ function reglages(){
   h.push('<label class="f">Calories · Firdaous</label><input class="f" type="number" id="r-kf" value="'+r.kcal.firdaous+'">');
   h.push('<label class="f">Cardio · minutes / pente / km-h</label><div class="nums">'+
     '<input class="f" type="number" id="r-cm" value="'+r.cardio.min+'"><input class="f" type="number" id="r-cp" value="'+r.cardio.pente+'"><input class="f" type="number" step="0.5" id="r-cv" value="'+r.cardio.vit+'"></div>');
+  h.push('<div class="sect"><h3>Jours par défaut</h3><p>Mohamed : '+esc(joursTexte(r.jours.mohamed))+'<br>Firdaous : '+esc(joursTexte(r.jours.firdaous))+'<br>Modifiables dans l’onglet Semaine.</p></div>');
   h.push('<label class="f">Début du programme</label><input class="f" type="date" id="r-deb" value="'+r.debut+'">');
   h.push('<label class="f">Thème</label><select class="f" id="r-th"><option value="auto">Automatique</option><option value="light">Clair</option><option value="dark">Sombre</option></select>');
   h.push('<button class="cta gh" data-a="reg-ok">Enregistrer</button>');
@@ -359,7 +389,7 @@ function detailJour(p, ds){
 // ===== actions =====
 document.addEventListener('click', async ev => {
   const nb2 = ev.target.closest('nav button');
-  if (nb2){ onglet = nb2.dataset.t; if (onglet !== 'exos') exoSeance = null; vib(8); rendre(); return; }
+  if (nb2){ onglet = nb2.dataset.t; if (onglet !== 'exos') exoSeance = null; if (onglet !== 'semaine') edit = false; vib(8); rendre(); return; }
   const el = ev.target.closest('[data-a]'); if (!el) { if (ev.target.id === 'ov') fermer(); return; }
   const a = el.dataset.a, ds = iso(auj()), p = profil;
   if (a === 'fermer') return fermer();
@@ -373,6 +403,9 @@ document.addEventListener('click', async ev => {
   if (a === 'seance'){ exoSeance = el.dataset.k; return rendre(); }
   if (a === 'fiche') return fiche(p, el.dataset.k);
   if (a === 'sem'){ semOff += Number(el.dataset.n); return rendre(); }
+  if (a === 'edit'){ edit = !edit; vib(10); return rendre(); }
+  if (a === 'togj') return basculerJour(el.dataset.p, el.dataset.d);
+  if (a === 'habitude') return figerHabitude();
   if (a === 'jjour') return detailJour(el.dataset.p, el.dataset.d);
   if (a === 'pesee') return pesee();
   if (a === 'pesee-ok'){
@@ -389,7 +422,7 @@ document.addEventListener('click', async ev => {
     const th = ($('#r-th')||{}).value || 'auto'; localStorage.setItem('bsaha.theme', th); appliqueTheme();
     await store.set('couple', 'settings', r); fermer(); toast('Enregistré'); return;
   }
-  if (a === 'setp'){ profil = el.dataset.p; try { localStorage.setItem('bsaha.profil', profil); } catch(e){} fermer(); return rendre(); }
+  if (a === 'setp'){ profil = el.dataset.p; edit = false; try { localStorage.setItem('bsaha.profil', profil); } catch(e){} fermer(); return rendre(); }
   if (a === 'sb-in' || a === 'sb-up'){
     CFG.url = ($('#s-url')||{}).value.trim(); CFG.anonKey = ($('#s-key')||{}).value.trim(); cfgSave();
     const ok = await connexion(($('#s-mail')||{}).value.trim(), ($('#s-pass')||{}).value, a === 'sb-up');
