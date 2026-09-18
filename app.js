@@ -131,8 +131,8 @@ function contenuSeance(profil, d, opts={}){
 }
 function P_of(p){ return D.profils[p] || PROFILS_DEFAUT[p]; }
 function exoInfo(profil, k){ return profil === 'mohamed' ? EXOS_M[k] : EXOS[k]; }
-const IMG = new Proxy({}, { get: (_, k) => 'assets/ex/f_' + k + '.jpg' });
-const imgM = (k, ab) => 'assets/ex/m_' + k + '_' + ab + '.jpg';
+const IMG = new Proxy({}, { get: (_, k) => 'f_' + k + '.jpg' });
+const imgM = (k, ab) => 'm_' + k + '_' + ab + '.jpg';
 function cardioDuJour(d){ const c = couple(); const p = planSemaine(iso(lundiDe(d))); const w = Math.max(1, Math.min(12, semaineNum(d))); const pal = CARDIO_M.find(x => x.sem.includes(w)) || CARDIO_M[CARDIO_M.length-1]; const s = seanceDu('mohamed', d); const veille = seanceDu('mohamed', addJ(d,-1)); const lendemain = seanceDu('mohamed', addJ(d,1)); const jambesVeille = veille && veille.key.startsWith('B'); const jambesDemain = lendemain && lendemain.key.startsWith('B');
   if (p.cardio === 'jours-off' && s) return null; if (p.cardio === 'apres' && !s) return null; if (p.cardio === 'aucun') return null; if (semaineNum(d) < 1) return null;
   let txt = pal.seance; let note = ''; if (jambesVeille) { txt = 'Marche 25 min ou piscine 20 min (lendemain d\'une séance jambes).'; note = 'allégé'; } else if (jambesDemain && p.difficulte.mohamed === 'difficile') { note = 'facile : jambes demain'; }
