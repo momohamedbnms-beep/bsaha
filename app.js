@@ -159,12 +159,54 @@ function fmtQ(q, u){ if (q == null) return ''; if (u === 'pièce') return Math.c
 // ===== État UI =====
 let profilActif = pref(); let onglet = 'aujourdhui'; let semaineVue = 0; let jourSel = null; let menuJourVue = 0;
 function setProfil(p){ profilActif = p; try { localStorage.setItem('bsaha.profil', p); } catch(e){} document.documentElement.dataset.profil = p; $$('.profil-switch button').forEach(b => b.classList.toggle('on', b.dataset.profil === p)); rendre(); }
-function afficherOnglet(t){ onglet = t; $$('nav.tabs button').forEach(b => b.classList.toggle('actif', b.dataset.tab === t)); $$('.ecran').forEach(e => e.hidden = e.id !== 'ecran-'+t); rendre(); window.scrollTo({top:0}); }
+function afficherOnglet(t){ onglet = t; document.documentElement.dataset.onglet = t; $$('nav.tabs button').forEach(b => b.classList.toggle('actif', b.dataset.tab === t)); $$('.ecran').forEach(e => e.hidden = e.id !== 'ecran-'+t); rendre(); window.scrollTo({top:0}); }
 function rendre(){ if (!pret) return; try { ({aujourdhui: rAuj, semaine: rSem, exos: rExos, repas: rRepas, progres: rProg, coach: rCoach})[onglet](); } catch(e){ console.error(e); } if (overlayRefaire && !$('#overlay').hidden) { /* les overlays se rafraîchissent eux-mêmes */ } }
 
 // ===== Écran Aujourd'hui =====
-function carteSeance(profil, d, c, statut){
-  return `<div class="carte accent">
+
+// ===== Shaker : serie de jours d'affilee =====
+function serieShaker(d){ let n = 0; for (let i = 0; i < 400; i++) { const k = iso(addJ(d, -i)); const sh = D.shaker[k]; if (sh && sh.pris) n++; else if (i > 0) break; else if (!sh || !sh.pris) continue; } return n; }
+function serieShakerExacte(d){ let n = 0; for (let i = 0; i < 400; i++) { const sh = D.shaker[iso(addJ(d, -i))]; if (sh && sh.pris) n++; else break; } return n; }
+
+// ===== Photo du jour (partagee) =====
+function photoDuJour(profil, d){ return D.photos[profil + '_' + iso(d)] || null; }
+function blocPhotoDuJour(d){
+  const k = iso(d);
+  const cellule = pr => {
+    const ph = photoDuJour(pr, d); const nom = pr === 'mohamed' ? 'Mo' : 'Fifi'; const moi = pr === profilActif;
+    if (ph) return `<button class="slot" data-act="photo-voir" data-p="${pr}" data-date="${k}"><span class="qui">${nom}</span><img data-photo="${esc(ph.path)}" alt="Photo de ${nom}"><span class="heure">${esc(ph.heure || '')}</span></button>`;
+    return `<button class="slot vide" data-act="photo-ajout" data-p="${pr}" data-date="${k}"${moi?'':' disabled'}><span class="qui">${nom}</span><span class="plus">+</span><span class="txt">${moi ? 'Ajoute ta photo' : 'Pas encore'}</span></button>`;
+  };
+  const n = (photoDuJour('mohamed', d) ? 1 : 0) + (photoDuJour('firdaous', d) ? 1 : 0);
+  return `<div class="carte"><div class="etiquette" style="display:flex;justify-content:space-between"><span>Notre photo du jour</span><span>${n}/2</span></div>
+    <div class="duo">${cellule('mohamed')}${cellule('firdaous')}</div>
+    <p class="muted small">${n === 2 ? 'Tous les deux, aujourd\'hui. ' : 'Le shaker, la salle, la séance — ce que tu veux. '}Visible par vous deux uniquement.</p></div>`;
+}
+async function hydraterPhotos(){
+  for (const img of $$('img[data-photo]')) {
+    const path = img.dataset.photo; if (!path || img.dataset.fait) continue; img.dataset.fait = '1';
+    try { const u = await photoUrl(path); if (u) img.src = u; } catch(e){}
+  }
+}
+function choisirPhotoJour(profil, dateK){
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.capture = 'environment';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0]; if (!f) return;
+    if (!session) { toast('Connecte-toi d\'abord (⚙ Réglages) pour partager la photo'); return; }
+    toast('Envoi de la photo…');
+    try {
+      const { blob } = await fileToB64(f, 1400);
+      const up = await photoUpload(blob);
+      const h = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      await store.set('photos', profil + '_' + dateK, { profil, date: dateK, path: up.id, heure: h, ts: Date.now() });
+      toast('Photo envoyée'); rendre();
+    } catch(e) { toast(e.code === 'not_connected' ? 'Connecte-toi pour partager la photo' : 'Échec de l\'envoi'); }
+  };
+  inp.click();
+}
+
+function carteSeance(profil, d, c, statut, plate){
+  return `<div class="carte${plate ? '' : ' accent'}">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><span class="pastille p-${c.couleur}">${esc(c.nom)} · ${esc(c.sous)}</span>${statut ? `<span class="pastille ${['terminée','adaptée'].includes(statut)?'p-ok':statut==='partielle'?'p-att':statut==='non renseignée'?'p-neutre':'p-accent'}">${esc(statut)}</span>`:''}</div>
     <h2>${esc(c.but)}</h2>
     <div class="grille2"><div><div class="etiquette">Niveau · séries</div><div>${esc(NIVEAU_LABEL[c.niveau])}</div></div><div><div class="etiquette">Durée estimée</div><div>≈ ${c.duree} min${c.raccourci?' · raccourci':''}</div></div></div>
@@ -174,25 +216,56 @@ function carteSeance(profil, d, c, statut){
          <div class="ligne-btns"><button class="btn sec petit" data-act="voir" data-p="${profil}" data-date="${iso(d)}">Voir les exercices</button><button class="btn sec petit" data-act="deplacer" data-p="${profil}" data-date="${iso(d)}">Déplacer</button><button class="btn sec petit" data-act="checkin" data-p="${profil}" data-date="${iso(d)}">Je me sens…</button></div>`}
   </div>`;
 }
+function carteShaker(d){
+  const k = iso(d); const sh = D.shaker[k]; const pris = !!(sh && sh.pris);
+  const serie = serieShakerExacte(pris ? d : addJ(d,-1));
+  const h = d.getHours(); const tard = !pris && h >= 19;
+  const ph = photoDuJour('firdaous', d);
+  const pts = [6,5,4,3,2,1,0].map(i => { const x = D.shaker[iso(addJ(d,-i))]; return `<i class="${x&&x.pris?'on':''}"></i>`; }).join('');
+  const cloche = `<span class="cloche"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>`;
+  if (pris) return `<div class="shaker fait">
+    <div class="haut"><div><div class="etiquette">Shaker du jour</div><h2>C'est bu. Bravo.</h2></div>${cloche}</div>
+    <div class="serie"><b>${serie}</b><span>jour${serie>1?'s':''} d'affilée</span></div>
+    <div class="points">${pts}</div>
+    ${ph ? '' : `<button class="btn sec" data-act="photo-ajout" data-p="firdaous" data-date="${k}">Ajouter la photo du jour</button>`}
+    <button class="btn sec" data-act="shaker" data-date="${k}">Changer la portion</button>
+  </div>`;
+  return `<div class="shaker sonne${tard?' tard':''}">
+    <div class="haut"><div><div class="etiquette">Shaker du jour${tard?' · il se fait tard':''}</div><h2>${tard ? 'Il reste un shaker.' : 'Ton shaker t\'attend.'}</h2></div>${cloche}</div>
+    ${serie > 0 ? `<div class="serie"><b>${serie}</b><span>jour${serie>1?'s':''} d'affilée — ne casse pas la série</span></div>` : `<div class="serie"><span>600–700 kcal, c'est ce qui fait la différence.</span></div>`}
+    <div class="points">${pts}</div>
+    <button class="btn" data-act="shaker-bu" data-date="${k}">Je l'ai bu</button>
+    <button class="btn sec" data-act="photo-ajout" data-p="firdaous" data-date="${k}">Je l'ai bu + photo</button>
+  </div>`;
+}
 function rAuj(){
   const d = auj(); const p = P(); const w = semaineNum(d); const c = contenuSeance(profilActif, d); const st = statutDu(profilActif, d); const h = d.getHours();
   const plan = planSemaine(iso(lundiDe(d))); const pj = planJour(profilActif, d); const cardio = profilActif === 'mohamed' ? cardioDuJour(d) : null;
-  const etat = c ? c.nom : cardio ? 'Cardio' : 'Repos';
-  let html = `<div class="hero"><div class="date">${fmtLong(d)} · semaine ${w >= 1 ? w : '—'}</div><div class="gros">${h<18?'Salut':'Bonsoir'} ${esc(p.prenom)},<br>${c ? (['terminée','adaptée','partielle'].includes(st) ? 'c\'est fait.' : `${esc(etat)} aujourd'hui.`) : cardio ? 'cardio aujourd\'hui.' : 'repos aujourd\'hui.'}</div></div>`;
-  if (c) html += carteSeance(profilActif, d, c, st);
+  const fait = ['terminée','adaptée','partielle'].includes(st);
+  const titre = c ? (fait ? 'c\'est fait.' : `${esc(c.nom)} aujourd'hui.`) : cardio ? 'cardio aujourd\'hui.' : 'repos aujourd\'hui.';
+  let html = `<div class="hero"><div class="date">${fmtLong(d)} · semaine ${w >= 1 ? w : '—'}</div><div class="gros">${h<18?'Salut':'Bonsoir'} ${esc(p.prenom)},<br>${titre}</div></div>`;
+
+  if (profilActif === 'firdaous') html += carteShaker(d);
+
+  if (c) html += carteSeance(profilActif, d, c, st, profilActif === 'firdaous');
   else { const prochain = [1,2,3,4,5,6,7].map(n => addJ(d,n)).find(x => seanceDu(profilActif, x));
-    html += `<div class="carte accent">${cardio ? `<span class="pastille">Cardio · ${esc(cardio.titre)}</span><h2>${esc(cardio.txt)}</h2>${cardio.note?`<span class="pastille">${esc(cardio.note)}</span>`:''}<button class="btn" data-act="cardio-fait" data-date="${iso(d)}">${D.logs['mohamed_cardio_'+iso(d)]?'✓ Cardio fait':'Cardio fait'}</button>` : `<span class="pastille">Repos</span><h2>Récupérer, c'est aussi le plan.</h2><p class="muted">Marche, étirements, ou rien du tout.</p>`}${prochain ? `<p class="muted small">Prochaine séance : <strong>${fmtLong(prochain).toLowerCase()}</strong>.</p>`:''}</div>`; }
-  if (profilActif === 'mohamed' && c && cardio) html += `<div class="carte"><div class="etiquette">Après la séance</div><p>${esc(cardio.txt)}</p></div>`;
-  if (!plan.valide && profilActif === 'mohamed' && w >= 1) html += `<button class="bandeau" data-act="preparer" data-lundi="${iso(lundiDe(d))}" style="text-align:left"><strong>Semaine pas encore préparée</strong> → réglages par défaut (${plan.seances} séances, toi ${plan.difficulte.mohamed}, Firdaous ${plan.difficulte.firdaous}). Touche pour préparer.</button>`;
-  // Repas
+    html += `<div class="carte${profilActif === 'firdaous' ? '' : ' accent'}">${cardio ? `<span class="pastille">Cardio · ${esc(cardio.titre)}</span><h2>${esc(cardio.txt)}</h2>${cardio.note?`<span class="pastille">${esc(cardio.note)}</span>`:''}<button class="btn" data-act="cardio-fait" data-date="${iso(d)}">${D.logs['mohamed_cardio_'+iso(d)]?'✓ Cardio fait':'Cardio fait'}</button>` : `<span class="pastille">Repos</span><h2>Récupérer, c'est aussi le plan.</h2>`}${prochain ? `<p class="muted small">Prochaine séance : <strong>${fmtLong(prochain).toLowerCase()}</strong>.</p>`:''}</div>`; }
+
+  html += blocPhotoDuJour(d);
+
+  if (!plan.valide && profilActif === 'mohamed' && w >= 1) html += `<button class="bandeau" data-act="preparer" data-lundi="${iso(lundiDe(d))}" style="text-align:left"><strong>Semaine pas encore préparée</strong> → touche pour préparer.</button>`;
+
   const pct = Math.min(100, Math.round(pj.total / p.kcalCible * 100));
+  const lignes = pj.repas.filter(([k]) => !(profilActif === 'firdaous' && k === 'Shaker'));
   html += `<div class="carte"><div class="etiquette" style="display:flex;justify-content:space-between"><span>Mes repas</span><span>${pj.total} / ${p.kcalCible} kcal</span></div><div class="kcal-bar" style="background:var(--ligne)"><i style="width:${pct}%;background:var(--accent)"></i></div>
-    <div class="repas">${pj.repas.map(([k,v,n]) => `<div><span class="k"><span>${k}</span><span>${n.kcal} kcal</span></span>${k==='Shaker' ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><button class="nom" data-act="recette" data-nom="${esc(v)}">${esc(v.replace(/ \(.*\)/,''))}</button><button class="btn ${pj.shakerPris?'sec':'lime'} petit" data-act="shaker" data-date="${iso(d)}">${pj.shakerPris?'✓ pris':'Pris'}</button></div>` : `<button class="nom" data-act="recette" data-nom="${esc(v)}">${esc(v)}</button>`}</div>`).join('')}</div>
+    <div class="repas">${lignes.map(([k,v,n]) => `<div><span class="k"><span>${k}</span><span>${n.kcal} kcal</span></span><button class="nom" data-act="recette" data-nom="${esc(v)}">${esc(v)}</button></div>`).join('')}</div>
     <div class="ligne-btns"><button class="btn sec petit" data-act="tab" data-tab="repas">Courses & semaine</button><button class="btn sec petit" data-act="raccourci" data-r="autre">Autre repas</button></div></div>`;
+
   const derniere = Object.values(D.mesures).filter(m => m.profil === profilActif && m.poids).sort((a,b)=>b.date.localeCompare(a.date))[0];
-  if (!derniere || diffJ(d, fromIso(derniere.date)) >= 14) html += `<div class="carte ink"><div class="etiquette">Pesée des 14 jours</div><h2>${derniere ? 'Ça fait ' + diffJ(d, fromIso(derniere.date)) + ' jours.' : 'Première pesée.'}</h2><p class="muted small">Le matin, à jeun, mêmes conditions.</p><div class="ligne-btns"><input type="number" id="poidsAuj" step="0.1" placeholder="kg" style="max-width:110px;background:var(--ink2);color:var(--fond);border-color:transparent" aria-label="Poids"><button class="btn petit" data-act="poids-add">Enregistrer</button></div></div>`;
+  if (!derniere || diffJ(d, fromIso(derniere.date)) >= 14) html += `<div class="carte ink"><div class="etiquette">Pesée des 14 jours</div><h2>${derniere ? 'Ça fait ' + diffJ(d, fromIso(derniere.date)) + ' jours.' : 'Première pesée.'}</h2><div class="ligne-btns"><input type="number" id="poidsAuj" step="0.1" placeholder="kg" style="max-width:110px;background:var(--ink2);color:var(--fond);border-color:transparent" aria-label="Poids"><button class="btn petit" data-act="poids-add">Enregistrer</button></div></div>`;
   html += `<div class="ligne-btns"><button class="btn sec" data-act="progres">Mes progrès & bilans</button></div>`;
   $('#ecran-aujourdhui').innerHTML = html;
+  hydraterPhotos();
 }
 
 // ===== Écran Semaine =====
@@ -203,7 +276,7 @@ function rSem(){
   const lettres = ['mohamed','firdaous'];
   html += `<div class="semaine">` + [0,1,2,3,4,5,6].map(i => { const d = addJ(base, i); const k = iso(d);
     const dots = lettres.map(pr => { const s = seanceDu(pr, d); const st = statutDu(pr, d); if (!s) return `<span class="point" style="opacity:.25">·</span>`; const c = pr==='mohamed' ? SEANCES_M[s.key] : SEANCES[s.key]; const done = ['terminée','adaptée','partielle'].includes(st); return `<span class="point p-${pr==='mohamed'?'bleu':'terracotta'}" title="${pr}">${done?'✓ ':''}${s.key}</span>`; }).join('');
-    return `<button class="jour ${diffJ(d,auj())===0?'auj':''} ${jourSel===k?'sel':''}" data-act="jour" data-date="${k}"><span class="nom">${JOURS_C[d.getDay()]}</span><span class="num">${d.getDate()}</span>${dots}</button>`; }).join('') + `</div><p class="muted small" style="text-align:center">Lime = Mohamed · Corail = Firdaous · ✓ = faite</p>`;
+    return `<button class="jour ${diffJ(d,auj())===0?'auj':''} ${jourSel===k?'sel':''}" data-act="jour" data-date="${k}"><span class="nom">${JOURS_C[d.getDay()]}</span><span class="num">${d.getDate()}</span>${dots}</button>`; }).join('') + `</div><p class="muted small" style="text-align:center">Mauve = Mohamed · Rose = Firdaous · ✓ = faite</p>`;
   const dsel = jourSel ? fromIso(jourSel) : null;
   if (dsel && diffJ(dsel, base) >= 0 && diffJ(dsel, base) <= 6) {
     html += `<div class="etiquette">${fmtLong(dsel)}</div>`;
@@ -518,6 +591,9 @@ document.addEventListener('click', async ev => {
   else if (a === 'deconnexion') { await deconnexion(); fermerTout(); }
   else if (a === 'cfg-save') { CFG.url = $('#cfgUrl').value.trim().replace(/\/$/, ''); CFG.anonKey = $('#cfgKey').value.trim(); CFG.aiKey = $('#cfgAi').value.trim(); CFG.aiModel = $('#cfgModel').value.trim() || 'claude-sonnet-4-5'; cfgSave(); sb = null; toast('Réglages enregistrés'); ouvrir._remplace = true; ouvrirReglages(); }
   else if (a === 'swap') ouvrirSwap(b.dataset.date, b.dataset.m);
+  else if (a === 'shaker-bu') { const k = b.dataset.date; await store.set('shaker', k, { pris: true, portion: 'normale', date: k }); try { navigator.vibrate && navigator.vibrate(60); } catch(e){} const n = serieShakerExacte(fromIso(k)); toast(n > 1 ? n + ' jours d\'affilée' : 'Shaker enregistré'); rendre(); }
+  else if (a === 'photo-ajout') { const k = b.dataset.date; const pr = b.dataset.p || profilActif; if (pr === 'firdaous' && !D.shaker[k]?.pris && b.textContent.includes('bu')) await store.set('shaker', k, { pris: true, portion: 'normale', date: k }); choisirPhotoJour(pr, k); }
+  else if (a === 'photo-voir') { const k = b.dataset.date; const pr = b.dataset.p; const ph = photoDuJour(pr, fromIso(k)); if (!ph) return; const nom = pr === 'mohamed' ? 'Mohamed' : 'Firdaous'; ouvrir(btnRetour() + `<h1>${nom} · ${fmtCourt(fromIso(k))}</h1><div class="carte"><img data-photo="${esc(ph.path)}" alt="Photo de ${nom}" style="width:100%;border-radius:var(--r2)">${ph.heure?`<p class="muted small">Envoyée à ${esc(ph.heure)}.</p>`:''}${pr === profilActif ? `<button class="btn sec" data-act2="photo-suppr" data-p="${pr}" data-date="${k}">Supprimer ma photo</button>`:''}</div>`); hydraterPhotos(); $('#overlay').addEventListener('click', async e2 => { const x = e2.target.closest('[data-act2="photo-suppr"]'); if (!x) return; try { await photoDelete(ph.path); } catch(e){} await store.del('photos', pr + '_' + k); fermerTout(); toast('Photo supprimée'); }); }
   else if (a === 'shaker') { const k = b.dataset.date; const cur = D.shaker[k]; if (cur?.pris) { ouvrir(btnRetour() + `<h1>Mon shaker</h1><div class="carte"><p>Enregistré aujourd'hui (${cur.portion==='petite'?'petite portion ≈ 450 kcal':'portion normale ≈ 650 kcal'}).</p><div class="ligne-btns"><button class="btn sec petit" data-sh="normale">Portion normale</button><button class="btn sec petit" data-sh="petite">Petite portion</button><button class="btn danger petit" data-sh="annuler">Annuler la saisie</button></div></div>`); } else { ouvrir(btnRetour() + `<h1>Mon shaker</h1><div class="carte"><p>Quelle portion ?</p><div class="ligne-btns"><button class="btn petit" data-sh="normale">Normale (≈ 650 kcal)</button><button class="btn sec petit" data-sh="petite">Petite faim (≈ 450 kcal)</button></div></div>`); } $('#overlay').onclick = async e2 => { const x = e2.target.closest('[data-sh]'); if (!x) return; if (x.dataset.sh === 'annuler') await store.del('shaker', k); else await store.set('shaker', k, { pris: true, portion: x.dataset.sh, date: k }); fermerTout(); }; }
   else if (a === 'raccourci') { const map = { 'Il manque un ingrédient': 'Il me manque un ingrédient pour le repas prévu : propose un remplacement simple avec ce que j\'ai probablement, et l\'ajout aux courses si besoin.', 'Je n\'ai que dix minutes': 'Je n\'ai que dix minutes pour manger : propose un repas rapide qui respecte ma cible.', 'Je mange à l\'extérieur': 'Je mange à l\'extérieur ce repas : que choisir et comment ajuster le reste de la journée ?', 'J\'ai peu faim': 'J\'ai peu faim aujourd\'hui : comment adapter mes repas' + (profilActif==='firdaous' ? ' et mon shaker' : '') + ' sans casser l\'objectif ?', autre: 'Je veux un autre repas que celui prévu ' + (menuJourVue===0?'aujourd\'hui':'ce jour-là') + ' : propose 2 options de la liste et applique celle que je choisis.' }; afficherOnglet('coach'); envoyer(map[b.dataset.r] || b.dataset.r); }
   else if (a === 'coche') { const c = { ...(D.courses.actuelle||{ coches: {}, extras: [] }) }; c.coches = { ...(c.coches||{}) }; if (c.coches[b.dataset.nom]) delete c.coches[b.dataset.nom]; else c.coches[b.dataset.nom] = true; await store.set('courses', 'actuelle', c); }
