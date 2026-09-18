@@ -165,7 +165,8 @@ const I = {
   cam:'<path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h1.7l1.2-2h7.2l1.2 2h1.7A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.4"/>',
   fork:'<path d="M6 3v6a2.5 2.5 0 0 0 5 0V3M8.5 11v10"/><path d="M17 3c-1.6 1.4-2 3.2-2 5.2 0 1.6.8 2.6 2 2.8V21"/>',
   glass:'<path d="M7 3h10l-1.2 6.2a4 4 0 0 1-3.9 3.2h0a4 4 0 0 1-3.9-3.2z"/><path d="M12 12.5V21M9 21h6"/>',
-  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>'
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
+  calc:'<path d="M12 3v3M10.5 4.5h3"/><rect x="3" y="12" width="18" height="9" rx="2.5"/><path d="M7 16h2M11 16h2M15 16h2M7 18.5h6M15 18.5h2"/>'
 };
 const svg = (d, cls='') => '<svg class="'+cls+'" viewBox="0 0 24 24">'+d+'</svg>';
 const ring = pct => { const c = 2*Math.PI*21; return '<div class="ring"><svg width="52" height="52"><circle cx="26" cy="26" r="21" stroke="rgba(255,255,255,.22)"/><circle cx="26" cy="26" r="21" stroke="#fff" stroke-linecap="round" stroke-dasharray="'+c.toFixed(0)+'" stroke-dashoffset="'+(c*(1-pct/100)).toFixed(0)+'"/></svg><b>'+pct+'%</b></div>'; };
@@ -262,6 +263,26 @@ async function askAI(texte, images){
   const j = await res.json();
   return (j.content || []).filter(x => x.type === 'text').map(x => x.text).join('');
 }
+// Estimation nutritionnelle à partir d'une description libre, avec photo en option.
+const PROMPT_NUT = 'Tu es diététicien. Estime la valeur nutritionnelle de ce qui est décrit.\n' +
+ 'Réponds UNIQUEMENT par du JSON, sans texte autour : {"nom":"nom court","kcal":nombre,"prot":nombre}\n' +
+ 'Règles :\n' +
+ '- additionne chaque ingrédient avec la quantité indiquée ;\n' +
+ '- si la personne donne une mesure (une cuillère = 30 g, une dose = 25 g), applique-la ;\n' +
+ '- « cuillère à soupe » ≈ 15 g, « cuillère à café » ≈ 5 g, sauf indication contraire ;\n' +
+ '- si une quantité manque, prends une portion courante sans le signaler ;\n' +
+ '- kcal = total de la préparation, prot = grammes de protéines du total ;\n' +
+ '- nom = résumé en 3 ou 4 mots.\n\nÀ estimer : ';
+async function estimerNut(texte, b64){
+  const t = await askAI(PROMPT_NUT + texte, b64 ? [{ b64, type:'image/jpeg' }] : null);
+  const j = jsonTolerant(t);
+  if (!j || !(j.kcal > 0)) throw { code:'illisible' };
+  return { nom: j.nom || '', kcal: Math.round(j.kcal), prot: Math.round(j.prot || 0) };
+}
+const msgIA = e => e.code === 'no_key' ? 'Ajoute ta clé Anthropic dans Réglages.'
+  : e.code === 'cle' ? 'Clé refusée — vérifie-la dans Réglages.'
+  : e.code === 'illisible' ? 'Réponse illisible. Reformule ou saisis à la main.'
+  : 'Estimation impossible pour le moment.';
 function jsonTolerant(t){ try { return JSON.parse(t); } catch(e){}
   const m = t.match(/```(?:json)?\s*([\s\S]*?)```/); if (m){ try { return JSON.parse(m[1]); } catch(e){} }
   const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a >= 0 && b > a){ try { return JSON.parse(t.slice(a, b+1)); } catch(e){} }
@@ -330,7 +351,7 @@ function blocNutrition(p, ds, compact){
     '<div class="bar"><i style="width:'+pp+'%;background:linear-gradient(90deg,var(--grn1),var(--grn2))"></i></div>'+
     '<div class="rest">'+(t.prot>=pc ? 'objectif atteint' : 'il te manque '+nb(rp)+' g')+'</div></div>'+
     (compact ? '' : '<div class="split"><button class="pa" data-a="repas-new"><b>+</b><i>Ajouter un repas</i></button>'+
-      '<button class="pa" data-a="repas-photo"><b>'+svg(I.cam)+'</b><i>Photo du repas</i></button></div>')+
+      '<button class="pa" data-a="repas-photo"><b>'+svg(I.calc)+'</b><i>Estimer avec l’IA</i></button></div>')+
     '</div>';
 }
 function blocRepas(p, ds, lecture){
@@ -552,21 +573,22 @@ function repasForm(p, ds, r){
   h.push('<div class="nums"><div style="flex:1"><label class="f">Calories</label><input class="f" type="number" inputmode="numeric" id="m-kcal" value="'+esc(e.kcal)+'"></div>'+
     '<div style="flex:1"><label class="f">Protéines (g)</label><input class="f" type="number" inputmode="numeric" id="m-prot" value="'+esc(e.prot)+'"></div></div>');
   h.push('<label class="f">Heure</label><input class="f" type="time" id="m-h" value="'+esc(e.h||heureMaintenant())+'">');
-  h.push('<label class="f">Note (facultatif)</label><input class="f" id="m-desc" value="'+esc(e.desc||'')+'">');
+  h.push('<label class="f">Ce que tu as mis dedans</label><textarea class="f ta" id="m-desc" rows="4" placeholder="2 cuillères de whey (30 g la cuillère), 3 dattes, 1 c. à s. de beurre de cacahuète">'+esc(e.desc||'')+'</textarea>');
+  h.push('<button class="cta2 ia" data-a="est-repas">'+svg(I.calc)+' Calculer les calories</button><div id="m-note"></div>');
   h.push('<button class="cta gh" data-a="repas-save" data-id="'+esc(r ? r.id : '')+'" data-p="'+p+'" data-d="'+ds+'">Enregistrer</button>');
   if (r) h.push('<button class="cta2 danger" data-a="repas-del" data-id="'+esc(r.id)+'">Supprimer ce repas</button>');
   ouvrir(h.join(''));
   window.__photo = e.photo || '';
 }
 function photoForm(p, ds){
-  const h = [ovh('Photo du repas', 'L’IA estime, tu corriges si besoin.')];
-  h.push('<input type="file" accept="image/*" capture="environment" id="m-file" hidden>');
-  h.push('<button class="cta gh" data-a="photo-pick">'+svg(I.cam)+' Choisir une photo</button>');
+  const h = [ovh('Estimer un repas', 'Décris-le, photographie-le, ou les deux.')];
+  h.push('<input type="file" accept="image/*" id="m-file" hidden>');
+  h.push('<label class="f">Décris ce que tu as mangé</label><textarea class="f ta" id="m-txt" rows="4" placeholder="2 morceaux de poulet, pommes de terre, un peu de sauce et de la salade"></textarea>');
+  h.push('<button class="cta2" data-a="photo-pick">'+svg(I.cam)+' Photo ou galerie (facultatif)</button>');
   h.push('<div id="m-prev"></div>');
-  h.push('<label class="f">Description (aide l’estimation)</label><input class="f" id="m-txt" placeholder="2 morceaux de poulet, pommes de terre, sauce, salade">');
-  h.push('<button class="cta" data-a="photo-go">Estimer les calories</button>');
+  h.push('<button class="cta gh" data-a="photo-go">'+svg(I.calc)+' Estimer les calories</button>');
   h.push('<div id="m-res"></div>');
-  if (!aiOk()) h.push('<div class="sect"><h3>Clé IA manquante</h3><p>Ajoute ta clé Anthropic dans Réglages pour activer l’estimation par photo. Sans clé, tu peux toujours saisir un repas à la main.</p></div>');
+  if (!aiOk()) h.push('<div class="sect"><h3>Clé IA manquante</h3><p>Va dans Réglages et colle ta clé Anthropic pour activer l’estimation. Sans clé, tu peux toujours saisir un repas à la main.</p></div>');
   ouvrir(h.join(''));
   window.__photo = '';
   const f = $('#m-file');
@@ -606,6 +628,7 @@ function shakerForm(p){
   const h = [ovh('Shaker de '+PROF(p).prenom, 'Un seul appui pour l’ajouter chaque jour')];
   h.push('<label class="f">Nom</label><input class="f" id="k-nom" value="'+esc(s.nom)+'">');
   h.push('<label class="f">Ce que tu mets dedans</label><textarea class="f ta" id="k-ing" rows="5" placeholder="Un ingrédient par ligne">'+esc(s.ing||'')+'</textarea>');
+  h.push('<button class="cta2 ia" data-a="est-shaker">'+svg(I.calc)+' Calculer à partir des ingrédients</button><div id="k-note"></div>');
   h.push('<div class="nums"><div style="flex:1"><label class="f">Calories</label><input class="f" type="number" inputmode="numeric" id="k-kcal" value="'+s.kcal+'"></div>'+
     '<div style="flex:1"><label class="f">Protéines (g)</label><input class="f" type="number" inputmode="numeric" id="k-prot" value="'+s.prot+'"></div></div>');
   h.push('<button class="cta gh" data-a="shaker-save" data-p="'+p+'">Enregistrer</button>');
@@ -652,7 +675,8 @@ function reglages(){
   h.push('<div class="sect"><h3>Jours par défaut</h3><p>Mohamed : '+esc(joursTexte(r.jours.mohamed))+'<br>Firdaous : '+esc(joursTexte(r.jours.firdaous))+'<br>Modifiables dans l’onglet Semaine.</p></div>');
   h.push('<label class="f">Début du programme</label><input class="f" type="date" id="r-deb" value="'+r.debut+'">');
   h.push('<label class="f">Thème</label><select class="f" id="r-th"><option value="auto">Automatique</option><option value="light">Clair</option><option value="dark">Sombre</option></select>');
-  h.push('<label class="f">Clé Anthropic (photo des repas)</label><input class="f" id="r-ai" type="password" value="'+esc(CFG.aiKey||'')+'" placeholder="sk-ant-…">');
+  h.push('<label class="f">Clé Anthropic (estimation des repas)</label><input class="f" id="r-ai" type="password" value="'+esc(CFG.aiKey||'')+'" placeholder="sk-ant-…">');
+  h.push('<div class="sect"><p>Elle se crée sur <b>platform.claude.com</b> → API keys → Create Key. Copie-la tout de suite, elle ne se réaffiche plus. Il faut aussi y charger quelques euros de crédit : l’API est facturée à part de ton abonnement Claude. La clé reste sur cet appareil.</p></div>');
   h.push('<button class="cta gh" data-a="reg-ok">Enregistrer</button>');
   h.push('<div class="sect"><h3>Synchronisation</h3><p class="sync '+(session?'ok':'local')+'"><s></s>'+(session ? 'Connecté · '+esc(CFG.email) : (sbOk() ? 'Non connecté' : 'Supabase à configurer'))+'</p></div>');
   h.push('<label class="f">E-mail du compte partagé</label><input class="f" id="s-mail" type="email" value="'+esc(CFG.email)+'">');
@@ -730,25 +754,46 @@ document.addEventListener('click', async ev => {
   if (a === 'repas-photo') return photoForm(p, ds);
   if (a === 'photo-pick'){ const f = $('#m-file'); if (f) f.click(); return; }
   if (a === 'photo-go'){
-    if (!window.__b64){ toast('Choisis d’abord une photo'); return; }
+    const desc = (($('#m-txt')||{}).value || '').trim();
+    if (!desc && !window.__b64){ toast('Décris ton repas ou ajoute une photo'); return; }
     const res = $('#m-res'); res.innerHTML = '<div class="w" style="margin-top:12px"><p class="mini">Estimation en cours…</p></div>';
-    const desc = ($('#m-txt')||{}).value || '';
     try {
-      const t = await askAI('Estime ce repas. Réponds UNIQUEMENT en JSON : {"nom":"…","kcal":nombre,"prot":nombre}. '+
-        'kcal = calories totales de l’assiette, prot = grammes de protéines. Précision au mieux, pas de texte autour.'+
-        (desc ? ' Description donnée par la personne : ' + desc : ''), [{ b64: window.__b64, type:'image/jpeg' }]);
-      const j = jsonTolerant(t);
-      if (!j || !j.kcal){ res.innerHTML = '<div class="w" style="margin-top:12px"><p class="mini">Estimation illisible. Saisis les valeurs à la main.</p></div>'; return; }
+      const j = await estimerNut(desc || 'le repas sur la photo', window.__b64);
       window.__est = j;
       res.innerHTML = '<div class="w" style="margin-top:12px"><div class="lab">Estimation</div>'+
         '<div class="big" style="font-size:30px">'+nb(j.kcal)+' <em>kcal</em></div>'+
-        '<div class="mini" style="margin-top:6px">'+nb(j.prot||0)+' g de protéines · '+esc(j.nom||'repas')+'</div>'+
-        '<div class="mini" style="margin-top:8px">Estimation basée sur la photo et ta description — à ajuster si besoin.</div>'+
+        '<div class="mini" style="margin-top:6px">'+nb(j.prot)+' g de protéines · '+esc(j.nom||'repas')+'</div>'+
+        '<div class="mini" style="margin-top:8px">Estimation d’après ce que tu as décrit'+(window.__b64?' et la photo':'')+' — à ajuster si besoin.</div>'+
         '<button class="cta gh" data-a="photo-add" data-p="'+p+'" data-d="'+ds+'">Ajouter à ma journée</button>'+
         '<button class="cta2" data-a="photo-edit" data-p="'+p+'" data-d="'+ds+'">Corriger avant d’ajouter</button></div>';
     } catch(e){
-      res.innerHTML = '<div class="w" style="margin-top:12px"><p class="mini">'+(e.code === 'no_key' ? 'Ajoute ta clé Anthropic dans Réglages.' : e.code === 'cle' ? 'Clé refusée.' : 'Estimation impossible pour le moment.')+'</p></div>';
+      res.innerHTML = '<div class="w" style="margin-top:12px"><p class="mini">'+msgIA(e)+'</p></div>';
     }
+    return;
+  }
+  if (a === 'est-repas'){
+    const txt = [(($('#m-nom')||{}).value||''), (($('#m-desc')||{}).value||'')].filter(Boolean).join(' — ').trim();
+    if (!txt){ toast('Écris d’abord ce que tu as mangé'); return; }
+    const note = $('#m-note'); note.innerHTML = '<p class="mini" style="margin-top:8px">Calcul en cours…</p>';
+    try {
+      const j = await estimerNut(txt);
+      $('#m-kcal').value = j.kcal; $('#m-prot').value = j.prot;
+      if (!($('#m-nom')||{}).value && j.nom) $('#m-nom').value = j.nom;
+      note.innerHTML = '<p class="mini" style="margin-top:8px">Estimé : '+nb(j.kcal)+' kcal · '+nb(j.prot)+' g. Corrige si besoin.</p>';
+      vib(12);
+    } catch(e){ note.innerHTML = '<p class="mini" style="margin-top:8px">'+msgIA(e)+'</p>'; }
+    return;
+  }
+  if (a === 'est-shaker'){
+    const ing = (($('#k-ing')||{}).value || '').trim();
+    if (!ing){ toast('Écris d’abord les ingrédients'); return; }
+    const note = $('#k-note'); note.innerHTML = '<p class="mini" style="margin-top:8px">Calcul en cours…</p>';
+    try {
+      const j = await estimerNut('un shaker composé de : ' + ing);
+      $('#k-kcal').value = j.kcal; $('#k-prot').value = j.prot;
+      note.innerHTML = '<p class="mini" style="margin-top:8px">Estimé : '+nb(j.kcal)+' kcal · '+nb(j.prot)+' g de protéines. Corrige si besoin.</p>';
+      vib(12);
+    } catch(e){ note.innerHTML = '<p class="mini" style="margin-top:8px">'+msgIA(e)+'</p>'; }
     return;
   }
   if (a === 'photo-add' || a === 'photo-edit'){
