@@ -9,3 +9,23 @@ const ROTATION_F = {"3":["A","B","C"],"4":["A","B","C","D"]};
 const CARDIO_M = [{"sem":[1,2],"titre":"Point de départ","seance":"Marche rapide 20 min, dont 2 × 3 min sur escalier ou pente à allure « je peux parler ». Note ton ressenti /10."},{"sem":[3,4],"titre":"Marche-course","seance":"25 min : alterne 1 min course lente / 2 min marche. Escalier : 3 × 4 min."},{"sem":[5,6],"titre":"Marche-course","seance":"25 min : 2 min course / 2 min marche. Escalier : 3 × 5 min."},{"sem":[7,8],"titre":"Allonger","seance":"28 min : 3 min course / 1 min marche. Escalier : 2 × 8 min."},{"sem":[9,10],"titre":"Continu","seance":"30 min : 5 min course / 1 min marche. Escalier : 20 min continu, allure modérée."},{"sem":[11,12],"titre":"Objectif","seance":"30 min de course continue lente (ou 25 min + marche). Escalier : 30 min avec pauses libres."}];
 const PROFILS_DEFAUT = {"mohamed":{"id":"mohamed","prenom":"Mohamed","sexe":"H","age":23,"taille":185,"poidsDepart":101,"objectifPoids":85,"objectifMois":6,"jalon":{"poids":91,"mois":3,"texte":"Perdre environ 10 kg en 3 mois (ambition, pas garantie : ≈ 0,8 kg/semaine, haut de la fourchette raisonnable)."},"activite":1.5,"kcalCible":2400,"protCible":175,"repasParJour":2,"difficulteDefaut":"difficile","dureeDefaut":60,"ton":"direct","lieu":"salle","cardio":"jours-off","priorites":["bras","jambes","fessiers","ventre (tour de taille)"],"notes":"Haut du corps au poids du corps de préférence, jambes aux machines. Café avant l'entraînement. Aime le sucre. Deux repas par jour : le matin (riche en protéines) et un second terminé vers 18 h (souple jusqu'à 19 h).","niveau":{"tractions":2,"pompes":15}},"firdaous":{"id":"firdaous","prenom":"Firdaous","sexe":"F","age":23,"taille":160,"poidsDepart":50,"objectifPoids":60,"objectifMois":6,"jalon":{"poids":55,"mois":3,"texte":"Atteindre ≈ 60 kg en 6 mois ou plus (≈ 0,35 kg/semaine), prise graduelle et harmonieuse."},"activite":1.45,"kcalCible":2100,"protCible":90,"repasParJour":3,"difficulteDefaut":"moyen","dureeDefaut":35,"ton":"bienveillant","lieu":"maison","cardio":"aucun","priorites":["fessiers","stabilité des hanches","force"],"notes":"Entraînement à la maison (tapis, haltère, chaise). Shaker quotidien inclus dans le total. Trois repas + shaker.","niveau":{}}};
 const SERIES_PAR_NIVEAU = {"facile":2,"moyen":3,"difficile":4};
+// Variantes « salle » des séances de Firdaous : mêmes groupes musculaires, machines et charges, volume un cran au-dessus. Les clés renvoient au catalogue EXOS_M.
+const SEANCES_F_SALLE = {
+  A: { nom:"Séance A · salle", sous:"Fessiers · base", couleur:"sauge",
+    but:"Mêmes fessiers qu'à la maison, mais avec des charges : on peut enfin progresser en poids.",
+    exos:[ {k:"hipThrust",series:4,reps:"8-12",repos:120}, {k:"presse",series:4,reps:"10-12",repos:120},
+           {k:"abduction",series:3,reps:"12-15",repos:60}, {k:"legCurl",series:3,reps:"10-12",repos:90} ] },
+  B: { nom:"Séance B · salle", sous:"Corps entier", couleur:"rose",
+    but:"Jambes, dos et haut du corps dans la même séance, chaque mouvement chargé.",
+    exos:[ {k:"hack",series:4,reps:"8-10",repos:120}, {k:"rowingInv",series:3,reps:"8-12",repos:90},
+           {k:"pompes",series:3,reps:"6-10",repos:90}, {k:"abduction",series:3,reps:"12-15",repos:60},
+           {k:"molletsDebout",series:3,reps:"12-15",repos:60} ] },
+  C: { nom:"Séance C · salle", sous:"Fessiers · hanches", couleur:"terracotta",
+    but:"Une jambe à la fois et chaîne postérieure : c'est la séance qui dessine le plus.",
+    exos:[ {k:"fentes",series:3,reps:"8-10",repos:90,parCote:true}, {k:"rdl",series:4,reps:"8-12",repos:120},
+           {k:"abduction",series:3,reps:"12-15",repos:60}, {k:"hipThrust",series:3,reps:"10-12",repos:90} ] },
+  D: { nom:"Séance D · salle", sous:"Légère · facultative", couleur:"sable",
+    but:"Journée douce à la salle : on bouge, on ne cherche pas la fatigue.",
+    exos:[ {k:"abduction",series:2,reps:"15",repos:45}, {k:"hipThrust",series:2,reps:"12",repos:60},
+           {k:"legCurl",series:2,reps:"12",repos:60}, {k:"molletsAssis",series:2,reps:"15",repos:45} ] }
+};

@@ -102,17 +102,36 @@ async function figerHabitude(){
   toast('Ce rythme devient l’habitude');
 }
 const titre = (p,k) => p === 'mohamed' ? (k[0] === 'H' ? 'Haut du corps' : 'Bas du corps') : ((SEANCES[k]||{}).sous || k);
-const defSeance = (p, k) => (p === 'mohamed' ? SEANCES_M : SEANCES)[k];
-const exosDe = (p, k) => { const s = defSeance(p, k); if (!s) return []; return s.exos.map(e => Object.assign({}, e, { fiche: (p === 'mohamed' ? EXOS_M : EXOS)[e.k] })); };
+// lieu : Mohamed est toujours à la salle ; Firdaous choisit jour par jour
+const LIEU_DEF = p => p === 'mohamed' ? 'salle' : 'maison';
+function lieuDe(p, d){
+  const ds = typeof d === 'string' ? d : iso(d);
+  if (p === 'mohamed') return 'salle';
+  const l = D.logs[lid(p, ds)];
+  if (l && l.lieu) return l.lieu;
+  return PROF(p).lieuDefaut || 'maison';
+}
+const catDe = (p, lieu) => (p === 'mohamed' || lieu === 'salle') ? 'm' : 'f';
+const CAT = c => c === 'm' ? EXOS_M : EXOS;
+function defSeance(p, k, lieu){
+  if (p === 'mohamed') return SEANCES_M[k];
+  return (lieu === 'salle' && typeof SEANCES_F_SALLE !== 'undefined' && SEANCES_F_SALLE[k]) ? SEANCES_F_SALLE[k] : SEANCES[k];
+}
+function exosDe(p, k, lieu){
+  const s = defSeance(p, k, lieu); if (!s) return [];
+  const c = catDe(p, lieu);
+  return s.exos.map(e => Object.assign({}, e, { fiche: CAT(c)[e.k], cat: c }));
+}
+const imgEx = e => e.cat === 'm' ? IMGM(e.k, 'a') : ((e.fiche && e.fiche.img) ? IMG(e.fiche.img[0]) : '');
 const lid = (p, d) => p + '_' + (typeof d === 'string' ? d : iso(d));
-function log(p, d){ return D.logs[lid(p,d)] || { p, d: (typeof d === 'string' ? d : iso(d)), exos:{}, cardio:false, repas:{}, fait:false }; }
+function log(p, d){ return D.logs[lid(p,d)] || { p, d: (typeof d === 'string' ? d : iso(d)), exos:{}, cardio:false, repas:{}, fait:false, lieu: LIEU_DEF(p) }; }
 async function majLog(p, d, f){ const l = JSON.parse(JSON.stringify(log(p,d))); f(l); await store.set('logs', lid(p,d), l); }
-function zonesDe(p, k){
-  const ex = exosDe(p, k); const z = [];
+function zonesDe(p, k, lieu){
+  const ex = exosDe(p, k, lieu); const z = [];
   ex.forEach(e => (e.fiche?.zone || '').split('·').forEach(x => { const t = x.trim(); if (t && !z.includes(t)) z.push(t); }));
   return z.slice(0, 3);
 }
-function progSeance(p, d, k){ const ex = exosDe(p, k); if (!ex.length) return 0; const l = log(p,d); return Math.round(ex.filter(e => l.exos[e.k]).length / ex.length * 100); }
+function progSeance(p, d, k){ const ex = exosDe(p, k, lieuDe(p, d)); if (!ex.length) return 0; const l = log(p,d); return Math.round(ex.filter(e => l.exos[e.k]).length / ex.length * 100); }
 
 // ===== streak =====
 function jourOk(p, dstr){
@@ -145,7 +164,8 @@ const I = {
   rest:'<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a7 7 0 0 0 11 11z"/>',
   cam:'<path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h1.7l1.2-2h7.2l1.2 2h1.7A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.4"/>',
   fork:'<path d="M6 3v6a2.5 2.5 0 0 0 5 0V3M8.5 11v10"/><path d="M17 3c-1.6 1.4-2 3.2-2 5.2 0 1.6.8 2.6 2 2.8V21"/>',
-  glass:'<path d="M7 3h10l-1.2 6.2a4 4 0 0 1-3.9 3.2h0a4 4 0 0 1-3.9-3.2z"/><path d="M12 12.5V21M9 21h6"/>'
+  glass:'<path d="M7 3h10l-1.2 6.2a4 4 0 0 1-3.9 3.2h0a4 4 0 0 1-3.9-3.2z"/><path d="M12 12.5V21M9 21h6"/>',
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>'
 };
 const svg = (d, cls='') => '<svg class="'+cls+'" viewBox="0 0 24 24">'+d+'</svg>';
 const ring = pct => { const c = 2*Math.PI*21; return '<div class="ring"><svg width="52" height="52"><circle cx="26" cy="26" r="21" stroke="rgba(255,255,255,.22)"/><circle cx="26" cy="26" r="21" stroke="#fff" stroke-linecap="round" stroke-dasharray="'+c.toFixed(0)+'" stroke-dashoffset="'+(c*(1-pct/100)).toFixed(0)+'"/></svg><b>'+pct+'%</b></div>'; };
@@ -289,6 +309,13 @@ function rendre(){
   ({ jour: rJour, semaine: rSemaine, exos: rExos, suivi: rSuivi })[onglet](p, ds);
 }
 
+// --- sélecteur maison / salle ---
+function segLieu(p, ds, lieu){
+  return '<div class="seg"><div class="seglab">Aujourd’hui je m’entraîne</div><div class="segb">'+
+    ['maison','salle'].map(x => '<button class="'+(x===lieu?'on':'')+'" data-a="lieu" data-p="'+p+'" data-d="'+ds+'" data-l="'+x+'">'+
+      svg(x==='maison'?I.home:I.halt)+(x==='maison'?'À la maison':'À la salle')+'</button>').join('')+'</div></div>';
+}
+
 // --- barres nutrition ---
 function blocNutrition(p, ds, compact){
   const kc = kcalCible(p), pc = protCible(p), t = totaux(p, ds);
@@ -331,11 +358,13 @@ function rJour(p, ds){
       '<button class="n'+(non?' sel':'')+'" data-a="sh0">'+svg(I.x)+'Pas pris</button></div></div>');
   }
   if (k){
-    const s = defSeance(p, k), z = zonesDe(p, k), pct = progSeance(p, ds, k), n = exosDe(p,k).length;
+    const lieu = lieuDe(p, ds), s = defSeance(p, k, lieu), z = zonesDe(p, k, lieu);
+    const pct = progSeance(p, ds, k), n = exosDe(p, k, lieu).length;
     h.push('<button class="card v" data-a="go-exos">'+ring(pct)+
       '<div class="ic">'+svg(I.halt)+'</div><div style="margin-top:14px">'+
       '<div class="eyebrow">Séance du jour · '+n+' exercices</div><h2>'+esc(titre(p,k))+'</h2>'+
       '<div class="tags">'+z.map(x=>'<span>'+esc(x)+'</span>').join('')+'</div></div></button>');
+    if (p === 'firdaous') h.push(segLieu(p, ds, lieu));
   } else {
     h.push('<div class="card b"><div class="ic">'+svg(I.rest)+'</div><div style="margin-top:14px">'+
       '<div class="eyebrow">Aujourd’hui</div><h2>Repos</h2><div class="sub">Marche, étirements, récupération.</div></div></div>');
@@ -347,8 +376,8 @@ function rJour(p, ds){
       '<button class="check'+(l.cardio?' on':'')+'" data-a="cardio" aria-label="Cardio fait">'+svg(I.check)+'</button></div>');
   }
   h.push(blocNutrition(p, ds));
-  if (p === 'firdaous' && (PROF('firdaous').shaker || {}).kcal)
-    h.push('<button class="cta2 gros" data-a="shaker-add">'+svg(I.glass)+' Ajouter mon shaker</button>');
+  if ((PROF(p).shaker || {}).kcal)
+    h.push('<button class="cta2 gros'+(p==='mohamed'?' v':'')+'" data-a="shaker-add" data-p="'+p+'">'+svg(I.glass)+' Ajouter mon shaker</button>');
   h.push(blocRepas(p, ds));
   // poids + prochain jalon
   const pr0 = projection(p, 3);
@@ -377,14 +406,29 @@ function rSemaine(){
     h.push('<div class="ltete" style="display:flex;justify-content:space-between;padding:0 6px"><span>'+esc(PROF(p).prenom)+'</span><span class="mini">'+nj+' séance'+(nj>1?'s':'')+'</span></div><div class="gr">');
     for (let i = 0; i < 7; i++){
       const d = plus(lun,i), ds = iso(d), k = seanceDuJour(p,d), l = D.logs[lid(p,ds)];
-      const cls = ['cell']; if (k) cls.push('prev'); if (l && l.fait) cls.push('fait'); if (ds === iso(auj())) cls.push('auj');
+      const auc = ds === iso(auj());
+      const cls = ['cell']; if (k) cls.push('prev'); if (l && l.fait) cls.push('fait'); if (auc) cls.push('auj');
       const ed = edit && chef(); if (ed) cls.push('edit');
-      h.push('<button class="'+cls.join(' ')+'" data-a="'+(ed?'togj':'jjour')+'" data-p="'+p+'" data-d="'+ds+'"><u>'+d.getDate()+'</u>'+(k?'<span>'+esc(k)+'</span>':'<span>'+(ed?'+':'·')+'</span>')+'</button>');
+      h.push('<button class="'+cls.join(' ')+'" data-a="'+(ed?'togj':'jjour')+'" data-p="'+p+'" data-d="'+ds+'">'+
+        (auc ? '<s class="pt"></s>' : '')+'<u>'+d.getDate()+'</u>'+(k?'<span>'+esc(k)+'</span>':'<span>'+(ed?'+':'·')+'</span>')+'</button>');
     }
     h.push('</div>');
   }
   if (edit && chef()) h.push('<button class="cta2" data-a="habitude" style="margin:14px 6px 2px;width:calc(100% - 12px)">Appliquer à toutes les semaines</button>');
   h.push('</div>');
+  // ce qu'il y a à faire aujourd'hui, en toutes lettres
+  const dj = auj(), dsj = iso(dj);
+  h.push('<div class="w"><div class="hrow"><div class="lab">Aujourd’hui · '+esc(dateCourte(dj))+'</div></div>'+
+    ['mohamed','firdaous'].map(p => {
+      const k = seanceDuJour(p, dj), lieu = lieuDe(p, dsj), l = D.logs[lid(p,dsj)];
+      if (!k) return '<div class="jal"><div class="hrow"><div class="jt">'+esc(PROF(p).prenom)+'</div><div class="mini">Repos</div></div></div>';
+      const s = defSeance(p, k, lieu), ex = exosDe(p, k, lieu);
+      return '<div class="jal"><div class="hrow"><div class="jt">'+esc(PROF(p).prenom)+' · '+esc(titre(p,k))+'</div>'+
+        '<div class="jc">'+(l && l.fait ? 'fait' : (p === 'firdaous' ? (lieu === 'salle' ? 'salle' : 'maison') : 'à faire'))+'</div></div>'+
+        '<div class="mini" style="margin-top:4px">'+esc(s.sous)+' · '+ex.length+' exercices</div>'+
+        '<div class="exl">'+ex.map(e => '<span>'+esc((e.fiche||{}).nom || e.k)+'</span>').join('')+'</div>'+
+        '<button class="cta2" data-a="jjour" data-p="'+p+'" data-d="'+dsj+'" style="margin-top:10px;min-height:46px">Ouvrir la séance</button></div>';
+    }).join('')+'</div>');
   const sc = ['mohamed','firdaous'].map(p => { let f = 0, t = 0; for (let i=0;i<7;i++){ const d = plus(lun,i); if (seanceDuJour(p,d)){ t++; const l = D.logs[lid(p,iso(d))]; if (l && l.fait) f++; } } return { p, f, t }; });
   h.push('<div class="vs">'+sc.map((s,i)=>'<div class="'+(i?'r':'v')+'"><i>'+esc(PROF(s.p).prenom)+'</i><b>'+s.f+'/'+s.t+'</b><u>séances faites</u></div>').join('')+'</div>');
   let shn = 0; for (let i=0;i<7;i++){ const x = D.shaker[iso(plus(lun,i))]; if (x && x.pris) shn++; }
@@ -397,7 +441,8 @@ function rSemaine(){
 let exoSeance = null;
 function rExos(p, ds){
   const d = dde(ds), k = exoSeance || seanceDuJour(p, d) || (p === 'mohamed' ? 'HA' : 'A');
-  const s = defSeance(p, k), ex = exosDe(p, k), l = log(p, ds), duj = seanceDuJour(p,d) === k;
+  const lieu = lieuDe(p, ds), s = defSeance(p, k, lieu), ex = exosDe(p, k, lieu);
+  const l = log(p, ds), duj = seanceDuJour(p,d) === k;
   const toutes = Object.keys(p === 'mohamed' ? SEANCES_M : SEANCES);
   const h = [];
   h.push('<div class="w" style="padding:14px 16px"><div style="display:flex;gap:7px;overflow-x:auto">'+
@@ -405,14 +450,15 @@ function rExos(p, ds){
   h.push('<div class="card v"><div class="ic">'+svg(I.halt)+'</div><div style="margin-top:12px">'+
     '<div class="eyebrow">'+esc(s.nom)+' · '+esc(s.sous)+'</div><h2>'+esc(titre(p,k))+'</h2>'+
     '<div class="sub">'+esc(s.but||'')+'</div></div></div>');
+  if (p === 'firdaous' && duj) h.push(segLieu(p, ds, lieu));
   h.push('<div class="w list">');
   ex.forEach(e => {
-    const f = e.fiche || {}, im = p === 'mohamed' ? IMGM(e.k,'a') : (f.img ? IMG(f.img[0]) : '');
-    h.push('<div class="row"><button class="th" data-a="fiche" data-k="'+esc(e.k)+'" aria-label="Voir '+esc(f.nom||e.k)+'">'+
+    const f = e.fiche || {}, im = imgEx(e);
+    h.push('<div class="row"><button class="th" data-a="fiche" data-k="'+esc(e.k)+'" data-c="'+e.cat+'" aria-label="Voir '+esc(f.nom||e.k)+'">'+
       (im ? '<img src="'+im+'" alt="" loading="lazy">' : svg(I.img))+'</button>'+
-      '<button class="rtx" data-a="fiche" data-k="'+esc(e.k)+'" style="background:none;border:0;text-align:left;min-height:44px">'+
+      '<button class="rtx" data-a="fiche" data-k="'+esc(e.k)+'" data-c="'+e.cat+'" style="background:none;border:0;text-align:left;min-height:44px">'+
       '<b>'+esc(f.nom||e.k)+'</b><i>'+esc(ligneSerie(p,e))+'</i><i class="mac">'+esc(ligneRepos(e))+'</i></button>'+
-      '<button class="aide" data-a="astuce" data-k="'+esc(e.k)+'" aria-label="Comment faire">?</button>'+
+      '<button class="aide" data-a="astuce" data-k="'+esc(e.k)+'" data-c="'+e.cat+'" aria-label="Comment faire">?</button>'+
       (duj ? '<button class="tick'+(l.exos[e.k]?' on':'')+'" data-a="exo" data-k="'+esc(e.k)+'" aria-label="Cocher">'+svg(I.check)+'</button>'
            : '<span class="go">'+svg(I.chev)+'</span>')+'</div>');
   });
@@ -489,12 +535,12 @@ function fermer(){ $('#ov').classList.remove('on'); $('#ovb').innerHTML = ''; do
 const ovh = (t, s) => '<div class="ovh"><div><h2>'+esc(t)+'</h2>'+(s?'<p>'+esc(s)+'</p>':'')+'</div><button class="x" data-a="fermer" aria-label="Fermer">'+svg(I.x)+'</button></div>';
 
 // ===== fiches & feuilles =====
-function astucePopup(p, k){
-  const f = (p === 'mohamed' ? EXOS_M : EXOS)[k]; if (!f) return;
+function astucePopup(c, k){
+  const f = CAT(c)[k]; if (!f) return;
   const h = [ovh(f.nom, 'En deux lignes')];
   h.push('<div class="w" style="margin-bottom:12px"><p class="sect" style="margin:0">'+esc(astuce(f))+'</p></div>');
   if (f.facile) h.push('<div class="sect"><h3>Trop dur ?</h3><p>'+esc(f.facile)+'</p></div>');
-  h.push('<button class="cta gh" data-a="fiche" data-k="'+esc(k)+'">Voir la fiche complète</button>');
+  h.push('<button class="cta gh" data-a="fiche" data-k="'+esc(k)+'" data-c="'+c+'">Voir la fiche complète</button>');
   ouvrir(h.join(''));
 }
 function repasForm(p, ds, r){
@@ -551,20 +597,25 @@ function nutForm(){
   h.push('<button class="cta2" data-a="nut-auto">Tout remettre en automatique</button>');
   ouvrir(h.join(''));
 }
-function shakerForm(){
-  const s = PROF('firdaous').shaker || { nom:'Shaker prise de poids', kcal:550, prot:35, ing:'250 ml de lait, 1 dose de whey, 1 banane, 30 g de flocons d’avoine, 1 c. à s. de beurre de cacahuète' };
-  const h = [ovh('Shaker de Firdaous', 'Un seul appui pour l’ajouter chaque jour')];
+const SHAKER_DEF = {
+  mohamed: { nom:'Shaker protéiné', kcal:280, prot:34, ing:'300 ml de lait écrémé\n1 dose de whey\n1 c. à c. de cacao non sucré' },
+  firdaous:{ nom:'Shaker prise de poids', kcal:550, prot:35, ing:'250 ml de lait\n1 dose de whey\n1 banane\n30 g de flocons d’avoine\n1 c. à s. de beurre de cacahuète' }
+};
+function shakerForm(p){
+  const s = Object.assign({}, SHAKER_DEF[p], PROF(p).shaker || {});
+  const h = [ovh('Shaker de '+PROF(p).prenom, 'Un seul appui pour l’ajouter chaque jour')];
   h.push('<label class="f">Nom</label><input class="f" id="k-nom" value="'+esc(s.nom)+'">');
-  h.push('<div class="nums"><div style="flex:1"><label class="f">Calories</label><input class="f" type="number" id="k-kcal" value="'+s.kcal+'"></div>'+
-    '<div style="flex:1"><label class="f">Protéines (g)</label><input class="f" type="number" id="k-prot" value="'+s.prot+'"></div></div>');
-  h.push('<label class="f">Ingrédients</label><input class="f" id="k-ing" value="'+esc(s.ing||'')+'">');
-  h.push('<button class="cta gh" data-a="shaker-save">Enregistrer</button>');
+  h.push('<label class="f">Ce que tu mets dedans</label><textarea class="f ta" id="k-ing" rows="5" placeholder="Un ingrédient par ligne">'+esc(s.ing||'')+'</textarea>');
+  h.push('<div class="nums"><div style="flex:1"><label class="f">Calories</label><input class="f" type="number" inputmode="numeric" id="k-kcal" value="'+s.kcal+'"></div>'+
+    '<div style="flex:1"><label class="f">Protéines (g)</label><input class="f" type="number" inputmode="numeric" id="k-prot" value="'+s.prot+'"></div></div>');
+  h.push('<button class="cta gh" data-a="shaker-save" data-p="'+p+'">Enregistrer</button>');
+  h.push('<div class="sect"><h3>Note</h3><p>Les calories et les protéines sont celles de ta dose habituelle. Change-les ici dès que tu changes de recette : le bouton du jour suivra.</p></div>');
   ouvrir(h.join(''));
 }
-function fiche(p, k){
-  const f = (p === 'mohamed' ? EXOS_M : EXOS)[k]; if (!f) return;
+function fiche(c, k){
+  const f = CAT(c)[k]; if (!f) return;
   const h = [ovh(f.nom, f.zone + (f.mat ? ' · ' + f.mat : ''))];
-  const ims = p === 'mohamed' ? [[IMGM(k,'a'),'Départ'],[IMGM(k,'b'),'Arrivée']] : (f.img ? [[IMG(f.img[0]),'Départ'],[IMG(f.img[1]),'Arrivée']] : []);
+  const ims = c === 'm' ? [[IMGM(k,'a'),'Départ'],[IMGM(k,'b'),'Arrivée']] : (f.img ? [[IMG(f.img[0]),'Départ'],[IMG(f.img[1]),'Arrivée']] : []);
   if (ims.length) h.push('<div class="ph2">'+ims.map(([src,c])=>'<figure><img src="'+src+'" alt="'+esc(f.nom+' — '+c)+'" onerror="this.closest(\'figure\').style.display=\'none\'"><figcaption>'+c+'</figcaption></figure>').join('')+'</div>');
   const S = (t, c) => c ? '<div class="sect"><h3>'+t+'</h3>'+c+'</div>' : '';
   const L = a => '<ul>'+a.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>';
@@ -594,7 +645,8 @@ function reglages(){
   const h = [ovh('Réglages')];
   h.push('<button class="cta2" data-a="nut-edit">'+svg(I.fork)+' Calories et protéines</button>');
   h.push('<button class="cta2" data-a="obj-edit">'+svg(I.scale)+' Objectifs 3 / 6 / 12 mois</button>');
-  h.push('<button class="cta2" data-a="shaker-edit">'+svg(I.glass)+' Recette du shaker</button>');
+  h.push('<button class="cta2" data-a="shaker-edit" data-p="mohamed">'+svg(I.glass)+' Shaker de Mohamed</button>');
+  h.push('<button class="cta2" data-a="shaker-edit" data-p="firdaous">'+svg(I.glass)+' Shaker de Firdaous</button>');
   h.push('<label class="f">Cardio · minutes / pente / km-h</label><div class="nums">'+
     '<input class="f" type="number" id="r-cm" value="'+r.cardio.min+'"><input class="f" type="number" id="r-cp" value="'+r.cardio.pente+'"><input class="f" type="number" step="0.5" id="r-cv" value="'+r.cardio.vit+'"></div>');
   h.push('<div class="sect"><h3>Jours par défaut</h3><p>Mohamed : '+esc(joursTexte(r.jours.mohamed))+'<br>Firdaous : '+esc(joursTexte(r.jours.firdaous))+'<br>Modifiables dans l’onglet Semaine.</p></div>');
@@ -626,14 +678,16 @@ function detailJour(p, ds){
   const d = dde(ds), k = seanceDuJour(p, ds ? d : d), l = log(p, ds);
   const mes = Object.values(D.mesures).find(m => m.p === p && m.d === ds);
   const h = [ovh(dateLongue(d), PROF(p).prenom)];
-  if (k){ const s = defSeance(p,k), ex = exosDe(p,k);
+  if (k){ const lieu = lieuDe(p, ds), s = defSeance(p,k,lieu), ex = exosDe(p,k,lieu);
     h.push('<div class="card v" style="margin-bottom:12px"><div class="eyebrow">'+esc(s.nom)+' · '+esc(s.sous)+'</div><h2>'+esc(titre(p,k))+'</h2>'+
-      '<div class="tags">'+zonesDe(p,k).map(x=>'<span>'+esc(x)+'</span>').join('')+'</div></div>');
+      '<div class="tags">'+zonesDe(p,k,lieu).map(x=>'<span>'+esc(x)+'</span>').join('')+'</div></div>');
+    if (p === 'firdaous') h.push(segLieu(p, ds, lieu));
     h.push('<div class="w list" style="margin-bottom:12px">'+ex.map(e=>{
-      const f = e.fiche||{}, im = p === 'mohamed' ? IMGM(e.k,'a') : (f.img ? IMG(f.img[0]) : '');
-      return '<div class="row"><button class="th" data-a="fiche" data-k="'+esc(e.k)+'" data-p="'+p+'">'+(im?'<img src="'+im+'" alt="" loading="lazy">':svg(I.img))+'</button>'+
-      '<button class="rtx" data-a="fiche" data-k="'+esc(e.k)+'" data-p="'+p+'" style="background:none;border:0;text-align:left;min-height:44px">'+
+      const f = e.fiche||{}, im = imgEx(e);
+      return '<div class="row"><button class="th" data-a="fiche" data-k="'+esc(e.k)+'" data-c="'+e.cat+'">'+(im?'<img src="'+im+'" alt="" loading="lazy">':svg(I.img))+'</button>'+
+      '<button class="rtx" data-a="fiche" data-k="'+esc(e.k)+'" data-c="'+e.cat+'" style="background:none;border:0;text-align:left;min-height:44px">'+
       '<b>'+esc(f.nom||e.k)+'</b><i>'+esc(ligneSerie(p,e))+'</i><i class="mac">'+esc(ligneRepos(e))+'</i></button>'+
+      '<button class="aide" data-a="astuce" data-k="'+esc(e.k)+'" data-c="'+e.cat+'" aria-label="Comment faire">?</button>'+
       '<button class="tick'+(l.exos[e.k]?' on':'')+'" data-a="exo-j" data-p="'+p+'" data-d="'+ds+'" data-k="'+esc(e.k)+'" aria-label="Cocher">'+svg(I.check)+'</button></div>'; }).join('')+'</div>');
     h.push('<button class="cta '+(l.fait?'':'gh')+'" data-a="fini-j" data-p="'+p+'" data-d="'+ds+'">'+(l.fait?'Annuler « terminée »':'Marquer terminée')+'</button>');
   } else h.push('<div class="card b" style="margin-bottom:12px"><div class="ic">'+svg(I.rest)+'</div><div style="margin-top:12px"><h2>Repos</h2><div class="sub">Marche, étirements, récupération.</div></div></div>');
@@ -657,14 +711,17 @@ document.addEventListener('click', async ev => {
   if (a === 'exo'){ vib(10); const k = el.dataset.k; return majLog(p, ds, l => { l.exos[k] = !l.exos[k]; }); }
   if (a === 'exo-j'){ vib(10); const pp = el.dataset.p, dd = el.dataset.d, k = el.dataset.k;
     await majLog(pp, dd, l => { l.exos[k] = !l.exos[k]; }); return detailJour(pp, dd); }
-  if (a === 'fini'){ vib(20); const k = seanceDuJour(p, auj()); return majLog(p, ds, l => { l.fait = !l.fait; l.seance = k; if (l.fait) exosDe(p,k).forEach(e => l.exos[e.k] = true); }); }
+  if (a === 'fini'){ vib(20); const k = seanceDuJour(p, auj()); return majLog(p, ds, l => { l.fait = !l.fait; l.seance = k; l.lieu = lieuDe(p, ds); if (l.fait) exosDe(p, k, l.lieu).forEach(e => l.exos[e.k] = true); }); }
   if (a === 'fini-j'){ vib(20); const pp = el.dataset.p, dd = el.dataset.d; await majLog(pp, dd, l => { l.fait = !l.fait; l.seance = seanceDuJour(pp, dde(dd)); }); return fermer(); }
   if (a === 'go-exos'){ onglet = 'exos'; exoSeance = null; return rendre(); }
   if (a === 'seance'){ exoSeance = el.dataset.k; return rendre(); }
-  if (a === 'fiche') return fiche(el.dataset.p || p, el.dataset.k);
-  if (a === 'astuce') return astucePopup(p, el.dataset.k);
+  if (a === 'fiche') return fiche(el.dataset.c || catDe(p, lieuDe(p, ds)), el.dataset.k);
+  if (a === 'astuce') return astucePopup(el.dataset.c || catDe(p, lieuDe(p, ds)), el.dataset.k);
   if (a === 'sem'){ semOff += Number(el.dataset.n); return rendre(); }
   if (a === 'edit'){ edit = !edit; vib(10); return rendre(); }
+  if (a === 'lieu'){ const pp = el.dataset.p, dd = el.dataset.d, ll = el.dataset.l; vib(12);
+    await majLog(pp, dd, l => { if (l.lieu !== ll){ l.lieu = ll; l.exos = {}; l.fait = false; } });
+    if ($('#ov').classList.contains('on')) detailJour(pp, dd); return; }
   if (a === 'togj') return basculerJour(el.dataset.p, el.dataset.d);
   if (a === 'habitude') return figerHabitude();
   if (a === 'jjour') return detailJour(el.dataset.p, el.dataset.d);
@@ -711,16 +768,16 @@ document.addEventListener('click', async ev => {
       const c = getSb(); if (c && session) await c.from('bsaha_docs').delete().match({ user_id: session.user.id, coll:'repas', id });
       rendre(); } fermer(); toast('Supprimé'); return; }
   if (a === 'shaker-add'){
-    const s = PROF('firdaous').shaker || {};
-    await store.set('repas', rid('firdaous', ds), { p:'firdaous', d:ds, type:'Shaker', h:heureMaintenant(), nom:s.nom||'Shaker', kcal:+s.kcal||0, prot:+s.prot||0, desc:s.ing||'', photo:'' });
-    await store.set('shaker', ds, { pris:true, d:ds });
+    const pp = el.dataset.p || p, s = PROF(pp).shaker || {};
+    await store.set('repas', rid(pp, ds), { p:pp, d:ds, type:'Shaker', h:heureMaintenant(), nom:s.nom||'Shaker', kcal:+s.kcal||0, prot:+s.prot||0, desc:s.ing||'', photo:'' });
+    if (pp === 'firdaous') await store.set('shaker', ds, { pris:true, d:ds });
     vib(15); toast('Shaker ajouté'); return;
   }
-  if (a === 'shaker-edit') return shakerForm();
+  if (a === 'shaker-edit') return shakerForm(el.dataset.p || p);
   if (a === 'shaker-save'){
-    const v = i => (($('#'+i)||{}).value || '');
-    const pr = Object.assign({}, PROF('firdaous'), { shaker:{ nom:v('k-nom'), kcal:Math.round(+v('k-kcal')||0), prot:Math.round(+v('k-prot')||0), ing:v('k-ing') } });
-    await store.set('profils', 'firdaous', pr); fermer(); toast('Recette enregistrée'); return;
+    const pp = el.dataset.p, v = i => (($('#'+i)||{}).value || '');
+    const pr = Object.assign({}, PROF(pp), { shaker:{ nom:v('k-nom'), kcal:Math.round(+v('k-kcal')||0), prot:Math.round(+v('k-prot')||0), ing:v('k-ing') } });
+    await store.set('profils', pp, pr); fermer(); toast('Recette enregistrée'); return;
   }
   // --- objectifs & nutrition ---
   if (a === 'obj-edit') return objForm();
@@ -804,10 +861,11 @@ function appliqueTheme(){ const t = localStorage.getItem('bsaha.theme') || 'auto
   // v3 -> v4 : les anciennes calories fixes deviennent un réglage manuel, rien n'est perdu
   const r4 = D.couple.settings;
   if (!r4.v4){ r4.v4 = true; if (r4.kcal && !r4.kcalM) r4.kcalM = Object.assign({}, r4.kcal); }
-  if (!D.profils.firdaous.shaker) D.profils.firdaous = Object.assign({}, D.profils.firdaous,
-    { shaker:{ nom:'Shaker prise de poids', kcal:550, prot:35, ing:'250 ml de lait, 1 dose de whey, 1 banane, 30 g de flocons d’avoine, 1 c. à s. de beurre de cacahuète' } });
+  for (const q of ['mohamed','firdaous']) if (!(D.profils[q]||{}).shaker)
+    D.profils[q] = Object.assign({}, D.profils[q], { shaker: Object.assign({}, SHAKER_DEF[q]) });
   lsSauver();
   pret = true; rendre();
-  if (session){ await store.set('couple','settings', REG()); await store.set('profils','firdaous', D.profils.firdaous); }
+  if (session){ await store.set('couple','settings', REG());
+    for (const q of ['mohamed','firdaous']) await store.set('profils', q, D.profils[q]); }
   if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js'); } catch(e){} }
 })();
