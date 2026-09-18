@@ -3,7 +3,8 @@ const COLLS = ['couple','profils','logs','mesures','shaker'];
 const D = Object.fromEntries(COLLS.map(c => [c, {}]));
 let sb = null, session = null, pret = false, rtChannel = null;
 const LS_CLE = 'bsaha.v3', LS_CFG = 'bsaha.cfg';
-const CFG = (() => { try { return Object.assign({ url:'', anonKey:'', email:'' }, JSON.parse(localStorage.getItem(LS_CFG)||'{}')); } catch(e){ return { url:'', anonKey:'', email:'' }; } })();
+const SB_DEF = { url:'https://xifuvauojojgwdyfvnjg.supabase.co', anonKey:'sb_publishable_XOdO89Ng6uyYSklh4ncRAw_gqVc-9op', email:'' };
+const CFG = (() => { try { const s = JSON.parse(localStorage.getItem(LS_CFG)||'{}'); if (!s.url || !s.anonKey) { s.url = SB_DEF.url; s.anonKey = SB_DEF.anonKey; } return Object.assign({}, SB_DEF, s); } catch(e){ return Object.assign({}, SB_DEF); } })();
 function cfgSave(){ try { localStorage.setItem(LS_CFG, JSON.stringify(CFG)); } catch(e){} }
 function lsCharger(){ try { const r = localStorage.getItem(LS_CLE); if (r) { const o = JSON.parse(r); COLLS.forEach(c => D[c] = o[c] || {}); } } catch(e){} }
 function lsSauver(){ try { localStorage.setItem(LS_CLE, JSON.stringify(D)); } catch(e){} }
